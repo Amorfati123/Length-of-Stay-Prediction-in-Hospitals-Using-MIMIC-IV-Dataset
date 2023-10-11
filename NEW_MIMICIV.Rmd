@@ -1,0 +1,719 @@
+---
+title: "NEW_MIMICIV"
+author: "Shikhar"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### (Shikhar Code start)
+
+#### Loading all the packages before starting the analysis
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(tidyr)
+library(car)
+library(MASS)
+library(geepack)
+
+```
+
+### Setting up the working directory
+
+```{r}
+setwd("C:/Users/shukl/Documents/AppliedStat_Project")
+
+```
+
+### Reading the patients.csv data file
+
+```{r}
+pat <- read.csv("patients.csv")
+head(pat)
+```
+
+### Getting the data from the second dataset: admissions.csv
+
+```{r}
+adm <- read.csv("admissions.csv")
+head(adm)
+```
+
+### Exploratory Data Analysis
+
+#### Barplot of the Gender column
+
+```{r}
+# Get the counts of unique values in the Gender
+counts <- table(pat$gender)
+
+# Plot a bar chart of the counts
+barplot(counts, main = "Bar Chart of Gender", 
+        xlab = "Gender", ylab = "Counts")
+```
+
+#### Histogram of the Anchor Age column
+
+```{r}
+# Plot a histogram of the 'anchor_age' column
+hist(pat$anchor_age, main = "Approx age distribution of the patients", 
+     xlab = "Anchor Age")
+```
+
+#### Visualizing Admission types
+
+```{r}
+ggplot(adm, aes(x = admission_type)) +
+  geom_bar(fill = "blue", color = "black") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Admission Types", x = "Admission Type", y = "Count")
+
+```
+
+#### Checking all the Unique values in Race column
+
+```{r}
+unique(adm$race)
+```
+
+#### Combining Races
+
+```{r}
+library(dplyr)
+
+# Creating a new column 'simplified_race' in the 'adm' data frame
+adm <- adm %>%
+  mutate(simplified_race = race) %>%
+  mutate(simplified_race = gsub("(WHITE.*)", "WHITE", simplified_race),
+         simplified_race = gsub("(BLACK.*)", "BLACK", simplified_race),
+         simplified_race = gsub("(ASIAN.*)", "ASIAN", simplified_race),
+         simplified_race = gsub("(HISPANIC.*)", "HISPANIC/LATINO", simplified_race),
+         simplified_race = gsub("UNABLE TO OBTAIN", "UNKNOWN", simplified_race),
+         simplified_race = gsub("PATIENT DECLINED TO ANSWER", "UNKNOWN", simplified_race))
+
+# Viewing the 'adm' data frame with the new 'simplified_race' column
+head(adm)
+```
+
+```{r}
+unique(adm$simplified_race)
+```
+
+#### Updating the 'simplified_race' column in the 'adm' data frame by combining the specified categories into the "OTHERS" category
+
+```{r}
+library(dplyr)
+
+adm <- adm %>%
+  mutate(simplified_race = ifelse(simplified_race %in% c("PORTUGUESE", "AMERICAN INDIAN/ALASKA NATIVE", "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER", "MULTIPLE RACE/ETHNICITY", "OTHER", "SOUTH AMERICAN"), "OTHERS", simplified_race))
+
+# Viewing the 'adm' data frame with the updated 'simplified_race' column
+unique(adm$simplified_race)
+
+```
+
+```{r}
+library(dplyr)
+
+
+unique_value_counts <- adm %>%
+  group_by(simplified_race) %>%
+  summarise(counts = n()) %>%
+  ungroup()
+
+# View the unique values and their counts
+unique_value_counts
+```
+
+#### Visualizing the simplified_race column
+
+```{r}
+ggplot(adm, aes(x = simplified_race)) +
+  geom_bar(fill = "red", color = "black") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Races", x = "Races", y = "Count")
+```
+
+#### Getting summary table of Age
+
+```{r}
+summary(pat$anchor_age)
+```
+
+#### Creating a new column called age_group in the pat dataframe which will categorize the age of each patient into the appropriate age group based on the defined intervals.
+
+(0, 35) = Youth (36, 55) = Adult (56, 100) = Senior
+
+```{r}
+# Define the age intervals
+age_intervals <- c(0, 35, 55, 100)
+
+# Define the corresponding age group labels
+age_groups <- c("Youth", "Adult", "Senior")
+
+# Use the cut() function to create a new column 'age_group'
+pat$age_group <- cut(pat$anchor_age, breaks = age_intervals, labels = age_groups)
+head(pat)
+```
+
+#### Getting the unique values and their counts of age_group column
+
+```{r}
+library(dplyr)
+
+
+unique_value_counts1 <- pat %>%
+  group_by(age_group) %>%
+  summarise(counts = n()) %>%
+  ungroup()
+
+# View the unique values and their counts
+unique_value_counts1
+```
+
+### Calculating the LOS: Subtracting the 'admittime' from 'dischtime' to get the length of stay and then dividing the result by the number of hours in a day.
+
+```{r}
+library(lubridate)
+
+adm$los <- as.numeric(difftime(ymd_hms(adm$dischtime), ymd_hms(adm$admittime), units = "hours"))
+```
+
+### Merging the 2 dataframes with "subject_id" as common column
+
+```{r}
+merged_data <- merge(pat, adm, by = "subject_id")
+head(merged_data)
+```
+
+```{r}
+str(merged_data)
+
+```
+
+#### Removing missing values from merged_data in place and update it with the resulting data frame.
+
+```{r}
+merged_data <- na.omit(merged_data)
+
+```
+
+#### Checking if there are any missing values in the data frame using the is.na() function
+
+```{r}
+any(is.na(merged_data))
+
+```
+
+### Keeping only the desired columns and dropping other columns
+
+```{r}
+filtered_data <- merged_data %>%
+  dplyr::select(gender, age_group, admission_type, insurance, marital_status, simplified_race, los)
+
+head(filtered_data)
+```
+
+#### Exploring los
+
+Getting the summary of los column
+
+```{r}
+summary(filtered_data$los)
+```
+
+Getting a histogram of los
+
+```{r}
+hist(filtered_data$los, main = "Length of Stay", xlab = "Hours")
+
+```
+
+#### Checking if there are outliers in los column
+
+```{r}
+# Calculate the IQR and define the outlier thresholds
+Q1 <- quantile(filtered_data$los, 0.25)
+Q3 <- quantile(filtered_data$los, 0.75)
+IQR <- Q3 - Q1
+
+outlier_threshold <- Q3 + 1.5 * IQR
+
+lower_outlier_threshold <- Q1 - 1.5 * IQR
+upper_outlier_threshold <- Q3 + 1.5 * IQR
+
+# Identify outliers in the los column
+outliers <- filtered_data$los[filtered_data$los < lower_outlier_threshold | filtered_data$los > upper_outlier_threshold]
+
+
+# View the outliers
+head(outliers)
+```
+
+```{r}
+# Identify outliers in the los column
+outliers <- filtered_data$los[filtered_data$los > outlier_threshold]
+
+# Create box plot of "los"
+boxplot(filtered_data$los, main = "Box plot of LOS", ylab = "Days")
+
+# Identify and plot the outliers
+los_outliers <- boxplot.stats(filtered_data$los)$out
+points(rep(1, length(los_outliers)), los_outliers, col = "red", pch = 19)
+```
+
+The outliers are marked in red and there are too many outliers in the los column.
+
+Removing the outliers
+
+```{r}
+# Remove outliers from the dataset
+filtered_data <- filtered_data[filtered_data$los >= lower_outlier_threshold & filtered_data$los <= upper_outlier_threshold, ]
+
+# Check the updated dataset
+summary(filtered_data$los)
+```
+
+```{r}
+# Create box plot of "los"
+boxplot(filtered_data$los, main = "Box plot of LOS", ylab = "Hours")
+```
+
+```{r}
+hist(filtered_data$los, main = "Length of Stay after the removal of outliers", xlab = "Hours")
+
+```
+
+Getting the Natural Log of los
+
+```{r}
+hist(log(filtered_data$los), main = "Length of Stay (Natural Log)", xlab = "Natural Log of Hours")
+```
+
+```{r}
+mean(filtered_data$los)
+```
+
+#### Summary of los column
+
+```{r}
+summary(filtered_data$los)
+```
+
+The minimum value of the los is a negative value that means los has negative values and the length of the stay can't be negative.
+
+Checking if the los column has negative values
+
+```{r}
+if (any(filtered_data$los < 0)) {
+  print("The column has negative values.")
+} else {
+  print("The column does not have negative values.")
+}
+
+```
+
+So dropping the rows with negative los
+
+```{r}
+filtered_data <- filtered_data[filtered_data$los > 0, ]
+
+```
+
+```{r}
+if (any(filtered_data$los < 0)) {
+  print("The column has negative values.")
+} else {
+  print("The column does not have negative values.")
+}
+
+```
+
+Getting summary of the los column
+
+```{r}
+summary(filtered_data$los)
+```
+
+#### Removing all the null values and Getting all the non-null values count
+
+```{r}
+filtered_data <- na.omit(filtered_data)
+
+```
+
+```{r}
+# Count non-null values in each column of the data frame
+non_null_counts <- colSums(!is.na(filtered_data))
+
+# Print the non-null counts
+print(non_null_counts)
+```
+
+#### Checking the null counts
+
+```{r}
+# Check for null values and sort the resulting vector in descending order
+null_counts <- sort(colSums(is.na(filtered_data)), decreasing=TRUE)
+
+# Display the null counts for each column
+print(null_counts)
+```
+
+#### Converting all the categorical variables to factors
+
+```{r}
+# Convert categorical variables into factors
+factor_columns <- c("gender", "age_group", "admission_type", "insurance", "marital_status", "simplified_race")
+filtered_data[factor_columns] <- lapply(filtered_data[factor_columns], factor)
+```
+
+```{r}
+str(filtered_data)
+```
+
+### Checking for normality: We will use Q-Q plots to assess the normality of the data. The Q-Q plots can be created using the qqnorm() and qqline() functions.
+
+#### LOS
+
+```{r}
+# Q-Q plot for Length of Stay (los)
+qqnorm(filtered_data$los, main = "Q-Q Plot for Length of Stay")
+qqline(filtered_data$los)
+```
+
+#### Plotting the Q-Q plot for the log-transformed length of stay (los)
+
+```{r}
+# Calculating the natural logarithm of los
+log_los <- log(filtered_data$los)
+
+# Q-Q plot for log-transformed Length of Stay (los)
+qqnorm(log_los, main = "Q-Q Plot for Log-transformed Length of Stay")
+qqline(log_los)
+```
+
+Hence it can be said that the LOS is not normally distributed.We will use non-parametric tests to find associations between patient demographics and hospitalization-related factors with respect to the LOS.
+
+### Statistical tests to find the associations
+
+#### Kruskal-Wallis test for categorical variables:
+
+#### Admission Types
+
+```{r}
+# Admission type
+kruskal_test_admission_type <- kruskal.test(filtered_data$los ~ filtered_data$admission_type)
+kruskal_test_admission_type
+```
+
+Interpretation: Kruskal-Wallis chi-squared: The test statistic is 177890, which is quite large. This value represents the difference in the distribution of LOS across the different admission types.
+
+The Kruskal-Wallis test is a non-parametric test used to compare the medians of two or more groups when the assumption of normality is violated. In this case, it is used to assess whether there are significant differences in the length of stay among different admission types.
+
+The extremely small p-value (\< 2.2e-16) suggests strong evidence against the null hypothesis of no difference in the length of stay across admission types. Thus, the result indicates that there are significant differences in the length of stay among different admission types in the dataset.
+
+#### To know which group has a longer or shorter LOS, we will compare the median LOS for each admission type, we can use the aggregate() function in R
+
+```{r}
+# Calculate median LOS for each admission type
+median_los_by_admission_type <- aggregate(filtered_data$los ~ filtered_data$admission_type, FUN=median)
+
+# Rename columns
+colnames(median_los_by_admission_type) <- c("Admission_Type", "Median_LOS")
+
+# Sort by median LOS (ascending)
+sorted_median_los_by_admission_type <- median_los_by_admission_type[order(median_los_by_admission_type$Median_LOS),]
+
+# Print the sorted data frame
+sorted_median_los_by_admission_type
+```
+
+This will calculate the median LOS for each admission type, sort the results by median LOS in ascending order, and print the sorted data frame. Interpretation: - These results show that patients with an "Elective" admission type have the longest median length of stay (100.75 hours), while those with "EU Observation" admission type have the shortest median length of stay (16.6 hours).
+
+#### Insurance
+
+```{r}
+# Insurance
+kruskal_test_insurance <- kruskal.test(filtered_data$los ~ filtered_data$insurance)
+kruskal_test_insurance
+
+```
+
+Interpretation: The test result shows:
+
+The test result shows a Kruskal-Wallis chi-squared value of 5959.7 with 2 degrees of freedom. The p-value is less than 2.2e-16, which is extremely small and indicates strong evidence against the null hypothesis. In this case, the null hypothesis states that there are no differences in the distribution of LOS among the insurance groups.
+
+Given the extremely small p-value, we reject the null hypothesis and conclude that there are statistically significant differences in the LOS among the insurance groups.
+
+The Kruskal-Wallis test does not indicate which specific insurance categories differ from each other or the direction of these differences. To determine that, we would need to perform post-hoc pairwise comparisons, such as the Dunn test.
+
+```{r}
+# Perform Dunn test for pairwise comparisons
+library(dunn.test)
+dunn_test_insurance <- dunn.test(filtered_data$los, filtered_data$insurance, method="bonferroni")
+dunn_test_insurance
+```
+
+Interpretation : The Kruskal-Wallis rank sum test was performed to examine the differences in the length of stay (LOS) among different insurance groups (Medicaid, Medicare, and Other). The Bonferroni method is used to adjust the p-values for multiple comparisons.
+
+The results of the Dunn test are as follows:
+
+Comparison between Medicaid and Medicare: Z-value: -63.91 Adjusted p-value: 0.0000
+
+Comparison between Medicaid and Other: Z-value: -27.49 Adjusted p-value: 1.073478e-166 (very close to 0)
+
+Comparison between Medicare and Other: Z-value: 63.03 Adjusted p-value: 0.0000
+
+In all three pairwise comparisons, the adjusted p-values are very close to or equal to 0, which indicates strong evidence against the null hypothesis. The null hypothesis states that there are no differences in the distribution of LOS between the compared insurance groups.
+
+Since the adjusted p-values are below the significance level (alpha = 0.05), we reject the null hypothesis for all three pairwise comparisons. This means there are statistically significant differences in LOS between Medicaid and Medicare, Medicaid and Other, and Medicare and Other insurance groups.
+
+#### To find out which insurance type has a higher or lower length of stay (LOS), we can look at the mean or median LOS for each insurance type. Since the data is not normally distributed, using the median is more appropriate.
+
+```{r}
+library(dplyr)
+
+filtered_data %>%
+  group_by(insurance) %>%
+  summarize(median_los = median(los, na.rm = TRUE))
+```
+
+Interpretation: The Medicare Insurance group has the longest hospitalization time. (68.65), while Medicaid has the lowest (46.13). However the difference is not much.
+
+#### Races
+
+```{r}
+# Race
+kruskal_test_race <- kruskal.test(filtered_data$los ~ filtered_data$simplified_race)
+kruskal_test_race
+```
+
+Interpretation: In this specific result, the Kruskal-Wallis test is used to compare the median Length of Stay (LOS) for each race group in the dataset. The test result shows a Kruskal-Wallis chi-squared value of 3730.4 with 5 degrees of freedom. The p-value is less than 2.2e-16, which is extremely small and indicates strong evidence against the null hypothesis.
+
+Given the extremely small p-value, we reject the null hypothesis and conclude that there are statistically significant differences in the LOS among the simplified race groups.
+
+#### Post-hoc analysis
+
+```{r}
+# Running Dunn's test for post-hoc analysis
+library(dunn.test)
+dunn.test(filtered_data$los, filtered_data$simplified_race, method = "bonferroni")
+```
+
+Interpretation: Looking at the results of the Dunn's test, the \* next to each p-value indicates that the difference between the mean ranks of the two groups being compared is statistically significant at a significance level of 0.05 after applying the Bonferroni correction.
+
+In all pairwise comparisons, except for Asian and Others, the adjusted p-values are equal to or very close to 0, indicating strong evidence against the null hypothesis. The null hypothesis states that there are no differences in the distribution of LOS between the compared race groups.
+
+Since the adjusted p-values are below the significance level (alpha = 0.05), we reject the null hypothesis for all pairwise comparisons except for Asian and Others. This means there are statistically significant differences in LOS between the race groups, with the exception of the comparison between Asian and Others.
+
+#### Age groups
+
+```{r}
+# Spearman's rank correlation
+spearman_result <- cor.test(filtered_data$los, as.numeric(filtered_data$age_group), method = "spearman")
+
+# Print the result
+spearman_result
+
+```
+
+Interpretation: Spearman's rank correlation test to assess the correlation between the length of stay (LOS) and age_group in the dataset. The test checks whether there is a monotonic relationship between the two variables.
+
+The computed p-value is still extremely small (\< 2.2e-16), indicating strong evidence against the null hypothesis.
+
+The Spearman's rank correlation coefficient (rho) is 0.172, which is a positive value, suggesting a weak positive monotonic relationship between LOS and age_group. As age_group increases, the LOS tends to increase as well, although the relationship is not strong.
+
+Given the extremely small p-value, we reject the null hypothesis and conclude that there is a statistically significant, albeit weak, positive monotonic relationship between LOS and age_group.
+
+```{r}
+library(dplyr)
+
+filtered_data %>%
+  group_by(age_group) %>%
+  summarize(median_los = median(los))
+```
+
+Youth has lowest LOS while Seniors have the highest LOS.
+
+#### Marital Status
+
+```{r}
+# Marital Status
+kruskal_test_marital <- kruskal.test(filtered_data$los ~ filtered_data$marital_status)
+kruskal_test_marital
+```
+
+Interpretation: The test result shows a Kruskal-Wallis chi-squared value of 7083.9 with 4 degrees of freedom. The p-value is less than 2.2e-16, which is extremely small and indicates strong evidence against the null hypothesis.
+
+Given the extremely small p-value, we reject the null hypothesis and conclude that there are statistically significant differences in the LOS among the marital status groups.
+
+```{r}
+# Running Dunn's test for post-hoc analysis
+library(dunn.test)
+dunn.test(filtered_data$los, filtered_data$marital_status, method = "bonferroni")
+```
+
+Interpretation: In all pairwise comparisons, except for Divorced and Widowed, the adjusted p-values are 0 or very close to 0, indicating strong evidence against the null hypothesis.
+
+Since the adjusted p-values are below the significance level (alpha = 0.05), we reject the null hypothesis for all pairwise comparisons except for Divorced and Widowed. This means there are statistically significant differences in LOS between the marital status groups, with the exception of the comparison between Divorced and Widowed. We cannot conclude that there is a statistically significant difference in LOS between the Divorced and Widowed groups.
+
+### Stratified Sampling
+The goal is to create a new dataset called "stratified_sample" that contains a 70% random sample of each unique combination of the following independent variables: admission_type, insurance, simplified_race, age_group, gender, and marital_status.
+
+First, the code loads the dplyr package. Then, it creates a new variable in the filtered_data called "combined_categories," which concatenates the values of the independent variables with an underscore separator. Next, the code groups the data by the combined_categories variable and samples 70% of the data within each group. Finally, the combined_categories variable is removed from the resulting stratified_sample dataset.
+
+```{r}
+
+
+library(dplyr)
+
+# Define the independent variables
+independent_vars <- c("admission_type", "insurance", "simplified_race", "age_group", "gender", "marital_status")
+
+# Create a new variable to represent the combined categories
+filtered_data <- filtered_data %>%
+  mutate(combined_categories = paste(admission_type, insurance, simplified_race, age_group, gender, marital_status, sep = "_"))
+
+# Perform stratified sampling based on the combined categories
+stratified_sample <- filtered_data %>%
+  group_by(combined_categories) %>%
+  sample_frac(0.7)  # Adjust the fraction to control the sampling percentage
+
+# Remove the combined_categories variable using base R
+stratified_sample <- stratified_sample[, !names(stratified_sample) %in% "combined_categories"]
+
+
+```
+
+### Fitting the Generalized Linear Model (GLM) with a Gamma distribution and a log link function
+
+```{r}
+# Fit the GLM model
+glm_model <- glm(los ~ ., data = stratified_sample, family = Gamma(link = "log"))
+
+# Get the model summary
+summary(glm_model)
+
+# Predict on the stratified sample
+glm_predictions <- predict(glm_model, newdata = stratified_sample)
+
+# Calculate the RMSE
+glm_rmse <- sqrt(mean((stratified_sample$los - glm_predictions)^2))
+glm_rmse
+
+```
+Interpretation: 
+This output shows the results of a Generalized Linear Model (GLM) with a Gamma distribution and a log link function. The model is fitted to predict the "los" (Length of Stay) variable using a dataset called "stratified_sample". The predictor variables included in the model are gender, age group, admission type, insurance type, marital status, and simplified race.
+
+The coefficients table displays the estimates, standard errors, t-values, and p-values for each predictor variable. The asterisks and other symbols next to the p-values represent the level of statistical significance:
+
+'***' indicates p < 0.001
+'**' indicates p < 0.01
+'*' indicates p < 0.05
+'.' indicates p < 0.1
+' ' indicates p >= 0.1
+Significant predictor variables can be interpreted as follows:
+
+Males have a shorter length of stay compared to females (reference group), with an estimate of -0.012001 (p < 0.001).
+Adults and seniors have longer lengths of stay compared to the reference group (children), with estimates of 0.126201 (p < 0.001) and 0.218463 (p < 0.001), respectively.
+Different admission types have varying effects on length of stay compared to the reference group (missing admission type).
+Patients with "Other" insurance have shorter lengths of stay compared to the reference group (Private insurance), with an estimate of -0.016928 (p < 0.001).
+Divorced and widowed patients have longer lengths of stay compared to the reference group (missing marital status), with estimates of 0.039269 (p < 0.01) and 0.035182 (p < 0.01), respectively.
+Patients of Hispanic/Latino, Other, Unknown, and White races have different lengths of stay compared to the reference group (missing race), with estimates of -0.020447 (p < 0.05), 0.048815 (p < 0.001), 0.083088 (p < 0.001), and 0.020895 (p < 0.01), respectively.
+The dispersion parameter for the Gamma family is estimated to be 0.5231358. The null deviance is 237602 on 279100 degrees of freedom, and the residual deviance is 141521 on 279078 degrees of freedom. The AIC (Akaike Information Criterion) of the model is 2797878. The model took six Fisher Scoring iterations to converge.
+
+Finally, the Root Mean Squared Error (RMSE) of the model is 93.67301.
+
+### Fitting the Random Forest Model
+```{r}
+# 2. Random Forest
+library(randomForest)
+rf_model <- randomForest(los ~ ., data = stratified_sample, ntree = 100, mtry = floor(sqrt(ncol(stratified_sample) - 1)))
+rf_predictions <- predict(rf_model, newdata = stratified_sample)
+rf_rmse <- sqrt(mean((stratified_sample$los - rf_predictions)^2))
+```
+```{r}
+rf_model
+
+rf_rmse
+```
+Interpretation:
+This output shows the results of fitting a random forest regression model to the stratified sample data.
+
+The model was built using the formula los ~ ., which means that the model predicts the variable los based on all other variables in the dataset.
+The random forest model used 100 trees (Number of trees: 100).
+At each split, the model tried 2 variables (No. of variables tried at each split: 2).
+The mean squared residual, which measures the average squared difference between the predicted and actual los values, is 2599.123.
+The percentage of variance explained by the model is 31.75% (% Var explained: 31.75). This means that the model can account for about 31.75% of the variability in the los variable.
+The square root of the mean squared residual is the RMSE (Root Mean Squared Error), which is a measure of model performance. In this case, the RMSE is 50.78514. The lower the RMSE value, the better the model's predictive performance.
+In summary, the random forest model built using 100 trees and 2 variables at each split can explain approximately 31.75% of the variability in the los variable, with an RMSE of 50.78514.
+
+
+### Fitting the Gradient Boosting Machines
+
+```{r}
+# 3. Gradient Boosting Machines
+library(xgboost)
+# Convert categorical variables to factors
+stratified_sample_factors <- stratified_sample
+for (colname in independent_vars) {
+  stratified_sample_factors[[colname]] <- as.factor(stratified_sample_factors[[colname]])
+}
+
+# Convert the data frame to a numeric matrix
+stratified_sample_matrix <- model.matrix(los ~ . - 1, data = stratified_sample_factors)
+
+# Create a DMatrix object
+dtrain <- xgb.DMatrix(data = stratified_sample_matrix, label = stratified_sample$los)
+
+```
+```{r}
+xgb_params <- list(
+  objective = "reg:gamma",
+  eval_metric = "rmse",
+  eta = 0.1,
+  max_depth = 6
+)
+
+xgb_model <- xgb.train(params = xgb_params, data = dtrain, nrounds = 100)
+
+
+xgb_predictions <- predict(xgb_model, newdata = dtrain)
+xgb_rmse <- sqrt(mean((stratified_sample$los - xgb_predictions)^2))
+
+cat("XGBoost RMSE:", xgb_rmse, "\n")
+
+```
+Interpretation:
+RMSE (Root Mean Squared Error) is a metric used to evaluate the performance of a regression model. It measures the average squared difference between the predicted and actual values.
+In this case, the RMSE for the XGBoost model is 51.29208. The lower the RMSE value, the better the model's predictive performance.
+In summary, the XGBoost model's predictive performance is captured by an RMSE of 51.29208. This indicates that, on average, the model's predictions deviate from the actual los values by approximately 51.29 units. Comparing this to the random forest model (RMSE: 50.78514), the XGBoost model's performance is slightly worse, but the difference is relatively small.
+
+```{r}
+cat("XGBoost RMSE:", xgb_rmse, "\n")
+cat("Random Forest RMSE:", rf_rmse, "\n")
+cat("GLM RMSE:", glm_rmse, "\n")
+
+```
+Conclusion:
+
+Based on the RMSE values, the Random Forest model outperformed the other two models with the lowest RMSE value of 50.78514. This indicates that the Random Forest model is better at predicting the length of stay for patients in this dataset. In comparison, the GLM model had the highest RMSE value of 93.67301, which suggests that it is less accurate in predicting los. It is important to note that model performance could potentially be improved by further tuning hyperparameters, feature engineering, or exploring other advanced models. 
+
+
+
+```{r}
+table(filtered_data$marital_status)
+```
+
